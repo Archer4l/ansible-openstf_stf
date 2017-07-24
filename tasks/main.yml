@@ -1,0 +1,30 @@
+---
+
+  - name: Create a unique key for openstf_secret_key
+    shell: uuidgen
+    run_once: true
+    delegate_to: 127.0.0.1
+    register: openstf_secret_key_gen
+
+  - name: Set var openstf_secret_key
+    set_fact:
+      openstf_secret_key: "{{ openstf_secret_key_gen.stdout }}"
+
+  - name: create required folders
+    file:
+      path: "{{ item }}"
+      state: directory
+      recurse: yes
+    with_items:
+      - "{{ openstf_home }}"
+      - "{{ openstf_db_path }}"
+
+  - name: deploy docker-compose file
+    template:
+      src: docker-compose.yml.j2
+      dest: "{{ openstf_home }}/docker-compose.yml"
+
+  - name: create and run containers
+    docker_service:
+      project_src: "{{ openstf_home }}"
+      pull: "{{ openstf_update }}"

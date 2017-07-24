@@ -1,0 +1,139 @@
+{{ ansible_managed | comment }}
+
+proxy_server:
+  image: openstf/stf
+  ports:
+    - "7100:7100"
+  command: stf poorxy --port 7100 --app-url http://{{ inventory_hostname }}:3100 --auth-url http://{{ inventory_hostname }}:3200 --api-url http://{{ inventory_hostname }}:3700 --websocket-url http://{{ inventory_hostname }}:3600 --storage-url http://{{ inventory_hostname }}:3500 --storage-plugin-image-url http://{{ inventory_hostname }}:3400 --storage-plugin-apk-url http://{{ inventory_hostname }}:3300
+ 
+rethinkdb:
+  image: rethinkdb:2.3
+  ports:
+    - "8080:8080"
+    - "28015:28015"
+    - "29015:29015"
+  volumes:
+    - "{{ openstf_db_path }}:/data"
+  restart: always
+  command: "rethinkdb --bind all --cache-size 2048"
+ 
+app:
+  image: openstf/stf
+  links:
+    - rethinkdb
+  ports:
+    - "3100:3000"
+  restart: always
+  command: stf app --port 3000 --secret {{ openstf_secret_key }} --auth-url http://{{ inventory_hostname }}/auth/ldap/ --websocket-url http://{{ inventory_hostname }}:3600/
+
+auth:
+  image: openstf/stf
+  ports:
+    - "3200:3000"
+  restart: always
+  command: stf auth-ldap --port 3000 --secret {{ openstf_secret_key }}  --ldap-url "{{ openstf_ldap_url }}" --ldap-search-dn "{{ openstf_ldap_search_dn }}" --ldap-bind-dn "{{ openstf_ldap_bind_dn }}" --ldap-bind-credentials "{{ openstf_ldap_bind_credentials }}" --ldap-search-field "{{ openstf_ldap_search_field }}" --app-url "http://{{ inventory_hostname }}:7100"
+
+#auth:
+#  image: openstf/stf
+#  ports:
+#    - "3200:3000"
+#  restart: always
+#  command: stf auth-mock --port 3000 --secret {{ openstf_secret_key }} --app-url http://{{ inventory_hostname }}:7100/
+
+
+storage-temp:
+  image: openstf/stf
+  ports:
+    - "3500:3000"
+  restart: always
+  command: stf storage-temp --port 3000 --save-dir /data
+
+storage-plugin-image:
+  image: openstf/stf
+  ports:
+    - "3400:3000"
+  restart: always
+  command: stf storage-plugin-image --port 3000 --storage-url http://{{ inventory_hostname }}:7100/
+
+storage-plugin-apk:
+  image: openstf/stf
+  ports:
+    - "3300:3000"
+  restart: always
+  command: stf storage-plugin-apk --port 3000 --storage-url http://{{ inventory_hostname }}:7100/
+
+websocket:
+  image: openstf/stf
+  links:
+    - rethinkdb
+  ports:
+    - "3600:3000"
+  restart: always
+  command: stf websocket --port 3000 --secret {{ openstf_secret_key }} --storage-url http://{{ inventory_hostname }}:7100/ --connect-sub tcp://{{ inventory_hostname }}:7150 --connect-push tcp://{{ inventory_hostname }}:7170
+
+triproxy-app:
+  image: openstf/stf
+  net: "host"
+  # ports:
+  #   - "7150:7150"
+  #   - "7160:7160"
+  #   - "7170:7170"
+  restart: always
+  command: stf triproxy app --bind-pub "tcp://*:7150" --bind-dealer "tcp://*:7160" --bind-pull "tcp://*:7170"
+
+triproxy-dev:
+  image: openstf/stf
+  net: "host"
+  # ports:
+  #   - "7250:7250"
+  #   - "7260:7260"
+  #   - "7270:7270"
+  restart: always
+  command: stf triproxy dev --bind-pub "tcp://*:7250" --bind-dealer "tcp://*:7260" --bind-pull "tcp://*:7270"
+
+processor:
+  image: openstf/stf
+  links:
+    - rethinkdb
+  restart: always
+  command: stf processor proc001 --connect-app-dealer tcp://{{ inventory_hostname }}:7160  --connect-dev-dealer tcp://{{ inventory_hostname }}:7260
+
+reaper-init:
+    image: openstf/stf
+    links:
+    - rethinkdb
+    command: 'stf migrate'
+
+reaper:
+  image: openstf/stf
+  links:
+    - rethinkdb
+  restart: always
+  command: stf reaper dev --connect-push tcp://{{ inventory_hostname }}:7270 --connect-sub tcp://{{ inventory_hostname }}:7150 --heartbeat-timeout 30000
+
+api:
+  image: openstf/stf
+  links:
+    - rethinkdb
+  ports:
+    - "3700:3000"
+  restart: always
+  command: stf api --port 3000 --secret {{ openstf_secret_key }} --connect-sub tcp://{{ inventory_hostname }}:7150 --connect-push tcp://{{ inventory_hostname }}:7170
+
+adbd:
+  image: sorccu/adb
+  privileged: true
+  ports:
+    - "10003:5037"
+  restart: always
+  volumes:
+    - "/dev/bus/usb:/dev/bus/usb"
+
+provider:
+  image: openstf/stf
+  ports:
+    - "7400-7500:7400-7500"
+  links:
+    - adbd
+  restart: always
+  command: stf provider --public-ip {{ inventory_hostname }} --min-port 7400 --max-port 7500 --adb-host {{ inventory_hostname }} --adb-port 10003 --allow-remote --connect-sub tcp://{{ inventory_hostname }}:7250 --connect-push tcp://{{ inventory_hostname }}:7270 --group-timeout 900 --storage-url http://{{ inventory_hostname }}:7100/ --vnc-initial-size 600x800
