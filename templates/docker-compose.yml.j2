@@ -4,6 +4,7 @@ proxy_server:
   image: openstf/stf
   ports:
     - "7100:7100"
+  restart: always
   command: stf poorxy --port 7100 --app-url http://{{ inventory_hostname }}:3100 --auth-url http://{{ inventory_hostname }}:3200 --api-url http://{{ inventory_hostname }}:3700 --websocket-url http://{{ inventory_hostname }}:3600 --storage-url http://{{ inventory_hostname }}:3500 --storage-plugin-image-url http://{{ inventory_hostname }}:3400 --storage-plugin-apk-url http://{{ inventory_hostname }}:3300
  
 rethinkdb:
@@ -46,7 +47,7 @@ storage-temp:
   ports:
     - "3500:3000"
   restart: always
-  command: stf storage-temp --port 3000 --save-dir /data
+  command: stf storage-temp --port 3000 --save-dir /tmp
 
 storage-plugin-image:
   image: openstf/stf
